@@ -17,11 +17,13 @@ func checkError(err error) {
 	}
 }
 
-type app struct {
-	x  float32
-	y  float32
-	xv float32
-	yv float32
+// Command represents comments send by the app
+type Command struct {
+	Type    byte
+	Address *net.UDPAddr
+	X       int
+	Y       int
+	Raw     []byte
 }
 
 func readF32(data []byte) (ret float32) {
@@ -30,7 +32,7 @@ func readF32(data []byte) (ret float32) {
 	return
 }
 
-func startServer(ch chan app) {
+func startServer(commands chan Command) {
 	ServerAddr, err := net.ResolveUDPAddr("udp", ":10001")
 	checkError(err)
 
@@ -44,32 +46,42 @@ func startServer(ch chan app) {
 	fmt.Printf("server started...\n")
 
 	for {
-
-		_, _, err := ServerConn.ReadFromUDP(buf)
+		num, address, err := ServerConn.ReadFromUDP(buf)
 		if err != nil {
-			fmt.Println("Error: ", err)
+			fmt.Println("error: ", err)
+			continue
 		}
 
-		//fmt.Println("Received ", string(buf[0:n]), " from ", addr, len(buf), n)
-		//fmt.Println("Received ", string(buf[0:4]), " from ", addr, len(buf), n)
-		//fmt.Println("Received ", string(buf[4:8]), " from ", addr, len(buf), n)
-		//fmt.Println("Received ", string(buf[8:12]), " from ", addr, len(buf), n)
-		//fmt.Println("Received ", string(buf[12:16]), " from ", addr, len(buf), n)
+		if num == 0 {
+			fmt.Println("read bytes num 0")
+			continue
+		}
 
-		var aa app
-		aa.x = readF32(buf[0:4])
-		aa.y = readF32(buf[4:8])
-		aa.xv = readF32(buf[8:12])
-		aa.yv = readF32(buf[12:16])
+		cmd := Command{Address: address, Raw: buf}
 
-		//fmt.Printf("hex for buffer %v\n", hex.EncodeToString(buf))
-		//fmt.Printf("hex for buffer %v - %f \n", hex.EncodeToString(buf[0:4]), readF32(buf[0:4]))
-		//fmt.Printf("hex for buffer %v\n", hex.EncodeToString(buf[4:8]))
-		//fmt.Printf("hex for buffer %v\n", hex.EncodeToString(buf[8:12]))
-		//fmt.Printf("hex for buffer %v\n", hex.EncodeToString(buf[12:16]))
-		//fmt.Printf("hex for buffer %v\n", aa)
+		switch code := buf[0]; code {
+		case MessageActionMove:
+			// case MessageActionTap:
+			// case MessageActionDblTab:
+			fmt.Println("mouse movement action found")
+			cmd.Type = code
+			cmd.X = int(readF32(buf[1:5]))
+			cmd.Y = int(readF32(buf[5:9]))
+			break
+		case MessageActionTap:
+			fmt.Println("tap action found")
+			cmd.Type = code
+			break
+		case MessageActionDblTab:
+			fmt.Println("double tap action found")
+			cmd.Type = code
+			break
+		default:
+			fmt.Printf("unsupported message type %v\n", code)
+			continue
+		}
 
-		ch <- aa
+		commands <- cmd
 	}
 }
 
@@ -82,18 +94,24 @@ func main() {
 	w, h := robotgo.GetScreenSize()
 	fmt.Printf("screen dimensions w=%d h=%d\n", w, h)
 
-	cc := make(chan app)
+	commands := make(chan Command)
 
-	go startServer(cc)
+	go startServer(commands)
 
-	for ccc := range cc {
-		x, y = robotgo.GetMousePos()
-
-		fmt.Printf("msg arrived %v\n", ccc)
-
-		x += int(ccc.x)
-		y += int(ccc.y)
-
-		robotgo.MoveMouse(x, y)
+	for command := range commands {
+		fmt.Printf("handling command %v - %d : %d\n", command.Type, command.X, command.Y)
+		switch command.Type {
+		case MessageActionMove:
+			x, y = robotgo.GetMousePos()
+			x += command.X
+			y += command.Y
+			robotgo.MoveMouse(x, y)
+			break
+		case MessageActionTap:
+			robotgo.Click("left", false)
+			break
+		case MessageActionDblTab:
+			robotgo.Click("left", true)
+		}
 	}
 }
