@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -24,12 +22,6 @@ type Command struct {
 	X       int
 	Y       int
 	Raw     []byte
-}
-
-func readF32(data []byte) (ret float32) {
-	buf := bytes.NewBuffer(data)
-	binary.Read(buf, binary.LittleEndian, &ret)
-	return
 }
 
 func startServer(commands chan Command) {
@@ -60,9 +52,22 @@ func startServer(commands chan Command) {
 		cmd := Command{Address: address, Raw: buf}
 
 		switch code := buf[0]; code {
+		case MessageActionConnect:
+			fmt.Println("user hailed")
+			cmd.Type = code
+			cmd.X = readI(buf[1:5])
+			cmd.Y = readI(buf[5:9])
+			break
+		case MessageActionSwipeLeftToRight,
+			MessageActionSwipeRightToLeft,
+			MessageActionSwipeUpToDown,
+			MessageActionSwipeDownToUp:
+			fmt.Printf("scroll for me please\n")
+			cmd.Type = code
+			cmd.X = int(readF32(buf[1:5]))
+			cmd.Y = int(readF32(buf[5:9]))
+			break
 		case MessageActionMove:
-			// case MessageActionTap:
-			// case MessageActionDblTab:
 			fmt.Println("mouse movement action found")
 			cmd.Type = code
 			cmd.X = int(readF32(buf[1:5]))
@@ -85,8 +90,9 @@ func startServer(commands chan Command) {
 	}
 }
 
-// MUST WATCH https://www.youtube.com/watch?v=vqvJn4G3NMM
 func main() {
+	fmt.Println("starting telemys server")
+
 	x, y := robotgo.GetMousePos()
 	fmt.Printf("current mouse position %d,%d\n", x, y)
 	// robotgo.MoveMouse(99, 99)
@@ -99,13 +105,29 @@ func main() {
 	go startServer(commands)
 
 	for command := range commands {
-		fmt.Printf("handling command %v - %d : %d\n", command.Type, command.X, command.Y)
+		fmt.Printf("handling command %v - %v : %v\n", command.Type, command.X, command.Y)
 		switch command.Type {
 		case MessageActionMove:
 			x, y = robotgo.GetMousePos()
 			x += command.X
 			y += command.Y
 			robotgo.MoveMouse(x, y)
+			break
+		case MessageActionSwipeUpToDown:
+			robotgo.ScrollMouse(1, "up")
+			fmt.Printf("must scroll according to deltas %v %v\n", x, y)
+			break
+		case MessageActionSwipeDownToUp:
+			robotgo.ScrollMouse(1, "down")
+			fmt.Printf("must scroll according to deltas %v %v\n", x, y)
+			break
+		case MessageActionSwipeLeftToRight:
+			robotgo.ScrollMouse(1, "left")
+			fmt.Printf("must scroll according to deltas %v %v\n", x, y)
+			break
+		case MessageActionSwipeRightToLeft:
+			robotgo.ScrollMouse(1, "right")
+			fmt.Printf("must scroll according to deltas %v %v\n", x, y)
 			break
 		case MessageActionTap:
 			robotgo.Click("left", false)
